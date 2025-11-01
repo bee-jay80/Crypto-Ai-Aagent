@@ -29,18 +29,39 @@ client = OpenAI(
 )
 
 SYSTEM_PROMPT = """
-You are a crypto command parser.
-Your job:
-- Detect the requested crypto asset
-- Extract the symbol
-- Convert any human date into YYYY-MM-DD format (ISO)
-- If date is unclear, guess intelligently (ex: "3 days ago")
-- If user gives an invalid date like "2025-31-12", fix it or return the closest valid date
-- Respond with ONLY JSON, no text around it.
-- Make sure to start counting from todays date (current date)
+You are a crypto assistant and command parser.
 
-Examples:
+Primary functions:
+1. When the user asks about cryptocurrency price/history/analysis/comparison → return ONLY valid JSON.
+2. If the message does NOT contain a crypto-related intent → reply conversationally like a friendly assistant.
+3. If user asks "what do you do" or "who are you" → explain your role and how to request crypto data.
+4. Detect greetings like "hi", "hello" and respond normally.
+5. Always be friendly and normal in conversation mode.
 
+CRYPTO MODE (Structured JSON rules):
+- Detect crypto-related queries (price inquiry, compare, asset lookup, date reference)
+- Extract correct asset name and symbol
+- Convert natural dates to phrases usable for conversion (yesterday, 3 days ago, 1 week ago)
+- NEVER include normal text around JSON
+- Return only JSON like:
+{"asset":"bitcoin","symbol":"BTC","date":"yesterday"}
+
+If no date given, assume "today" and use JSON.
+
+Chat Mode Examples (no JSON):
+User: "Hi"
+Response: "Hello! 👋 How can I help you today?"
+
+User: "What do you do?"
+Response: "I help you check cryptocurrency prices for any date. You can say things like:
+- 'Check btc yesterday'
+- 'Solana price 3 days ago'
+- 'Compare ETH one week ago'"
+
+User: "How's your day?"
+Response: "Great! I'm ready to assist 😊"
+
+Crypto Mode Examples (pure JSON):
 User: "check btc yesterday"
 Response:
 {"asset":"bitcoin","symbol":"BTC","date":"yesterday"}
@@ -57,6 +78,13 @@ User: "compare eth price one week ago"
 Response:
 {"asset":"ethereum","symbol":"ETH","date":"1 week ago"}
 
+REMEMBER:
+- If crypto detected → JSON only
+- If normal chat → normal text reply
+- For unknown asset spelling, correct it intelligently
+- Multi-word coins use hyphen (pi-network) except brand coins like pinksale (no hyphen)
+
+
 Also give the right symbols and asset  for the right coins even the once not mentioned here
 For a more than one word asset seperate by hyphine (-) e.g pi-network but asset like pink sale that is pinksale should not be with an hyphine(-)
 
@@ -69,40 +97,39 @@ Return ONLY valid JSON like:
 NOTE: do not actually return 2025-month in number-day in number but return it with the month as a number and also the date as a number also the updated year
 """
 
-
 async def parse_text(text: str) -> dict:
     try:
         completion = client.chat.completions.create(
-            # model="katanemo/Arch-Router-1.5B:hf-inference",
-            # model="openai/gpt-oss-20b:groq",
             model="zai-org/GLM-4.6:novita",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": text}
             ],
-            max_tokens=120,
+            max_tokens=200,
         )
 
         raw = completion.choices[0].message.content.strip()
 
+        # ✅ Try JSON mode first
         try:
             data = json.loads(raw)
-        except Exception:
+            parsed_date = normalize_date(data.get("date"))
             return {
-                "error": "MODEL_RETURNED_NON_JSON",
+                "asset": data.get("asset"),
+                "symbol": data.get("symbol"),
+                "date": parsed_date,
                 "raw": raw
             }
-
-        parsed_date = normalize_date(data.get("date"))
-        return {
-            "asset": data.get("asset"),
-            "symbol": data.get("symbol"),
-            "date": parsed_date,
-            "raw": raw
-        }
+        except json.JSONDecodeError:
+            # ✅ Normal Chat Mode
+            return {
+                "message": raw,
+                "mode": "chat"
+            }
 
     except Exception as e:
         return {"error": "PARSE_FAILED", "details": str(e)}
+
 
 
 SYSTEM_PROMPT2 = """
