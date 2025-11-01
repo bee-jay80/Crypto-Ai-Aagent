@@ -1,0 +1,36 @@
+version: "3.8"
+services:
+  web:
+    build: .
+    env_file: .env
+    command: gunicorn core.wsgi:application -w 3 -b 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: deltaai_prod
+      POSTGRES_USER: deltaai
+      POSTGRES_PASSWORD: deltaai_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  worker:
+    build: .
+    env_file: .env
+    command: celery -A celery_app worker --loglevel=info
+    depends_on:
+      - redis
+      - db
+
+volumes:
+  pgdata:
