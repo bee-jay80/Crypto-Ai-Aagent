@@ -1,70 +1,55 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from asgiref.sync import async_to_sync
+from datetime import datetime
+import uuid
+
 from .services import parse_text, response_text
 from prices.services import get_comparison
-from .models import JSONRPCRequest, JSONRPCResponse, TaskResult, TaskStatus, A2AMessage, Artifact, MessagePart
-from asgiref.sync import async_to_sync
+from .models import (
+    JSONRPCRequest, JSONRPCResponse, TaskResult, TaskStatus,
+    A2AMessage, Artifact, MessagePart
+)
 
 class A2ACryptoAPIView(APIView):
-    """Main A2A endpoint for crypto agent"""
+    """A2A endpoint for Telex crypto agent"""
+
     def post(self, request):
+        body = request.data
+        request_id = body.get("id")
+
+        # ✅ Basic JSON-RPC validation
+        if not body.get("jsonrpc") or not request_id:
+            return Response({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {"code": -32600, "message": "Invalid Request"}
+            }, status=400)
+
         try:
-            body = request.data
-            request_id = body.get("id") # Get ID early
-            
-            if not body.get("jsonrpc") or not request_id:
-                return Response({
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "error": {"code": -32600, "message": "Invalid Request"}
-                }, status=400)
-
-            # --- START MODIFICATION ---
-            # Manually parse the body to find the user_text and sanitize
-            # the 'parts' list *before* Pydantic validation.
-            # This prevents a validation crash on the invalid 'data' part.
-
-            user_text = ""
+            # Extract last message text
             method = body.get("method")
             params = body.get("params", {})
-            last_message_dict = None
-            found_text_part = None
 
+            last_message_dict = None
             if method == "message/send":
                 last_message_dict = params.get("message")
             elif method == "execute":
-                messages_list = params.get("messages")
-                if messages_list and isinstance(messages_list, list):
-                    last_message_dict = messages_list[-1] # Get last message
+                msgs = params.get("messages")
+                last_message_dict = msgs[-1] if msgs else None
 
-            if last_message_dict and isinstance(last_message_dict, dict):
+            user_text = ""
+            if last_message_dict:
                 parts = last_message_dict.get("parts", [])
-                if isinstance(parts, list):
-                    for part in parts:
-                        # Find the *first* text part and break
-                        if isinstance(part, dict) and part.get("kind") == "text":
-                            user_text = part.get("text", "").strip()
-                            found_text_part = part
-                            break
-            
-            # Now, sanitize the 'body' dict by replacing the 'parts' list
-            # with *only* the valid text part we found.
-            if last_message_dict and found_text_part:
-                last_message_dict["parts"] = [found_text_part]
-                
-                # Update the body itself
-                if method == "message/send":
-                    body["params"]["message"] = last_message_dict
-                elif method == "execute":
-                    body["params"]["messages"][-1] = last_message_dict
-            
-            # --- END MODIFICATION ---
+                for part in parts:
+                    if part.get("kind") == "text":
+                        user_text = part.get("text", "").strip()
+                        last_message_dict["parts"] = [part]
+                        break
 
-
-            # Now this line will succeed because the 'body' is sanitized
+            # ✅ Validate using schema AFTER sanitizing
             rpc_request = JSONRPCRequest(**body)
 
-            # Determine messages
             if rpc_request.method == "message/send":
                 messages = [rpc_request.params.message]
             elif rpc_request.method == "execute":
@@ -76,61 +61,211 @@ class A2ACryptoAPIView(APIView):
                     "error": {"code": -32601, "message": "Method not found"}
                 }, status=400)
 
-            # We already have 'user_text' from our manual parse above.
-            # The original logic block to find it is no longer needed.
-
-            # Parse text → JSON (asset, symbol, date)
+            # Parse crypto intent
             parsed = async_to_sync(parse_text)(user_text)
+
+            # ✅ Chat mode → normal friendly assistant reply
             if parsed.get("mode") == "chat":
-                # Chat mode reply
-                response_message = A2AMessage(
+                reply_text = parsed.get("message", "")
+                msg = A2AMessage(
                     role="agent",
-                    parts=[MessagePart(kind="text", text=parsed.get("message"))]
+                    messageId=str(uuid.uuid4()),
+                    parts=[MessagePart(kind="text", text=reply_text)]
                 )
-                task_result = TaskResult(
+
+                task = TaskResult(
                     id=rpc_request.id,
-                    contextId="chat-context",
-                    status=TaskStatus(state="completed", message=response_message),
+                    contextId="chat",
+                    status=TaskStatus(
+                        state="completed",
+                        timestamp=datetime.utcnow().isoformat(),
+                        message=msg
+                    ),
                     artifacts=[],
-                    history=[messages[-1], response_message]
+                    history=[messages[-1], msg]
                 )
-                response = JSONRPCResponse(id=rpc_request.id, result=task_result)
-                return Response(response.model_dump())
 
-            # Fetch historical + current prices
+                return Response(JSONRPCResponse(id=rpc_request.id, result=task).model_dump())
+
+            # ✅ Crypto data mode
             dt = parsed.get("date")
-            asset = parsed.get("symbol")
-            result = async_to_sync(get_comparison)(asset, dt)
+            symbol = parsed.get("symbol")
 
-            # Generate AI formatted response
-            reply_text = async_to_sync(response_text)(result)
+            comp = async_to_sync(get_comparison)(symbol, dt)
+            analysis_text = async_to_sync(response_text)(comp)
 
-            # Build A2A message & artifacts
-            response_message = A2AMessage(
+            msg = A2AMessage(
                 role="agent",
-                parts=[MessagePart(kind="text", text=reply_text)]
+                messageId=str(uuid.uuid4()),
+                parts=[MessagePart(kind="text", text=analysis_text)]
             )
 
             artifacts = [
-                Artifact(name="comparison_data", parts=[MessagePart(kind="data", data=result)])
+                Artifact(
+                    artifactId=str(uuid.uuid4()),
+                    name="comparison_data",
+                    parts=[MessagePart(kind="file", file_url="none"),
+                           MessagePart(kind="text", text=str(comp))]
+                )
             ]
 
-            task_result = TaskResult(
+            task = TaskResult(
                 id=rpc_request.id,
-                contextId="crypto-context",
-                status=TaskStatus(state="completed", message=response_message),
+                contextId=f"crypto-{symbol.lower()}",
+                status=TaskStatus(
+                    state="completed",
+                    timestamp=datetime.utcnow().isoformat(),
+                    message=msg
+                ),
                 artifacts=artifacts,
-                history=[messages[-1], response_message]
+                history=[messages[-1], msg]
             )
 
-            response = JSONRPCResponse(id=rpc_request.id, result=task_result)
-            return Response(response.model_dump())
+            return Response(JSONRPCResponse(id=rpc_request.id, result=task).model_dump())
 
         except Exception as e:
-            # Use the request_id we saved at the top
-            current_id = request_id if "request_id" in locals() else (body.get("id") if "body" in locals() else None)
             return Response({
                 "jsonrpc": "2.0",
-                "id": current_id,
+                "id": request_id,
                 "error": {"code": -32603, "message": "Internal error", "data": str(e)}
             }, status=500)
+
+
+
+
+# from rest_framework.views import APIView
+# from rest_framework.response import Response
+# from .services import parse_text, response_text
+# from prices.services import get_comparison
+# from .models import JSONRPCRequest, JSONRPCResponse, TaskResult, TaskStatus, A2AMessage, Artifact, MessagePart
+# from asgiref.sync import async_to_sync
+
+# class A2ACryptoAPIView(APIView):
+#     """Main A2A endpoint for crypto agent"""
+#     def post(self, request):
+#         try:
+#             body = request.data
+#             request_id = body.get("id") # Get ID early
+            
+#             if not body.get("jsonrpc") or not request_id:
+#                 return Response({
+#                     "jsonrpc": "2.0",
+#                     "id": request_id,
+#                     "error": {"code": -32600, "message": "Invalid Request"}
+#                 }, status=400)
+
+#             # --- START MODIFICATION ---
+#             # Manually parse the body to find the user_text and sanitize
+#             # the 'parts' list *before* Pydantic validation.
+#             # This prevents a validation crash on the invalid 'data' part.
+
+#             user_text = ""
+#             method = body.get("method")
+#             params = body.get("params", {})
+#             last_message_dict = None
+#             found_text_part = None
+
+#             if method == "message/send":
+#                 last_message_dict = params.get("message")
+#             elif method == "execute":
+#                 messages_list = params.get("messages")
+#                 if messages_list and isinstance(messages_list, list):
+#                     last_message_dict = messages_list[-1] # Get last message
+
+#             if last_message_dict and isinstance(last_message_dict, dict):
+#                 parts = last_message_dict.get("parts", [])
+#                 if isinstance(parts, list):
+#                     for part in parts:
+#                         # Find the *first* text part and break
+#                         if isinstance(part, dict) and part.get("kind") == "text":
+#                             user_text = part.get("text", "").strip()
+#                             found_text_part = part
+#                             break
+            
+#             # Now, sanitize the 'body' dict by replacing the 'parts' list
+#             # with *only* the valid text part we found.
+#             if last_message_dict and found_text_part:
+#                 last_message_dict["parts"] = [found_text_part]
+                
+#                 # Update the body itself
+#                 if method == "message/send":
+#                     body["params"]["message"] = last_message_dict
+#                 elif method == "execute":
+#                     body["params"]["messages"][-1] = last_message_dict
+            
+#             # --- END MODIFICATION ---
+
+
+#             # Now this line will succeed because the 'body' is sanitized
+#             rpc_request = JSONRPCRequest(**body)
+
+#             # Determine messages
+#             if rpc_request.method == "message/send":
+#                 messages = [rpc_request.params.message]
+#             elif rpc_request.method == "execute":
+#                 messages = rpc_request.params.messages
+#             else:
+#                 return Response({
+#                     "jsonrpc": "2.0",
+#                     "id": rpc_request.id,
+#                     "error": {"code": -32601, "message": "Method not found"}
+#                 }, status=400)
+
+#             # We already have 'user_text' from our manual parse above.
+#             # The original logic block to find it is no longer needed.
+
+#             # Parse text → JSON (asset, symbol, date)
+#             parsed = async_to_sync(parse_text)(user_text)
+#             if parsed.get("mode") == "chat":
+#                 # Chat mode reply
+#                 response_message = A2AMessage(
+#                     role="agent",
+#                     parts=[MessagePart(kind="text", text=parsed.get("message"))]
+#                 )
+#                 task_result = TaskResult(
+#                     id=rpc_request.id,
+#                     contextId="chat-context",
+#                     status=TaskStatus(state="completed", message=response_message),
+#                     artifacts=[],
+#                     history=[messages[-1], response_message]
+#                 )
+#                 response = JSONRPCResponse(id=rpc_request.id, result=task_result)
+#                 return Response(response.model_dump())
+
+#             # Fetch historical + current prices
+#             dt = parsed.get("date")
+#             asset = parsed.get("symbol")
+#             result = async_to_sync(get_comparison)(asset, dt)
+
+#             # Generate AI formatted response
+#             reply_text = async_to_sync(response_text)(result)
+
+#             # Build A2A message & artifacts
+#             response_message = A2AMessage(
+#                 role="agent",
+#                 parts=[MessagePart(kind="text", text=reply_text)]
+#             )
+
+#             artifacts = [
+#                 Artifact(name="comparison_data", parts=[MessagePart(kind="data", data=result)])
+#             ]
+
+#             task_result = TaskResult(
+#                 id=rpc_request.id,
+#                 contextId="crypto-context",
+#                 status=TaskStatus(state="completed", message=response_message),
+#                 artifacts=artifacts,
+#                 history=[messages[-1], response_message]
+#             )
+
+#             response = JSONRPCResponse(id=rpc_request.id, result=task_result)
+#             return Response(response.model_dump())
+
+#         except Exception as e:
+#             # Use the request_id we saved at the top
+#             current_id = request_id if "request_id" in locals() else (body.get("id") if "body" in locals() else None)
+#             return Response({
+#                 "jsonrpc": "2.0",
+#                 "id": current_id,
+#                 "error": {"code": -32603, "message": "Internal error", "data": str(e)}
+#             }, status=500)
