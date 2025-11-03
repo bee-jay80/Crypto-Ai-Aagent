@@ -120,8 +120,9 @@ CELERY_RESULT_BACKEND = CELERY_BROKER_URL
 
 STATIC_URL = "/static/"
 
-COINGECKO_BASE = os.getenv("COINGECKO_BASE", "https://api.coingecko.com/api/v3")
-BINANCE_BASE = os.getenv("BINANCE_BASE", "https://api.binance.com")
+COINGECKO_BASE = os.getenv("COINGECKO_BASE")
+BINANCE_BASE = os.getenv("BINANCE_BASE")
+OKX_BASE = os.getenv("OKX_BASE")
 
 HF_API_URL = os.getenv("HF_API_URL")
 HF_API_TOKEN = os.getenv("HF_API_TOKEN")
