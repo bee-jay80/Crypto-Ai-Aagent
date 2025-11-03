@@ -1,13 +1,106 @@
-# DeltaAI — Crypto Delta API (Django + DRF + HF AI Proxy)
+# 🤖 AI Crypto Price Agent — Django + OKX + Telex A2A
 
-DeltaAI parses natural-language requests, extracts a crypto asset and date via a free HuggingFace model (server-side), fetches the requested historical price from CoinGecko, fetches the current price, and returns the percent change and direction.
+An AI-powered cryptocurrency intelligence agent built with **Django**, **GPT-5**, and **OKX API**, fully integrated with **Telex A2A protocol**.  
+The bot answers natural crypto queries such as:
 
-## Quick start (local, dev)
+> "What's Bitcoin's price right now?"  
+> "Check ETH price yesterday"  
+> "What is the 7-day trend for BTC?"
 
-1. Clone repo
-2. Create `.env` from `.env.example` and fill HF_API_TOKEN
-3. Create virtualenv and install:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
+It returns **real-time market prices** + **AI-analysis** in Telex-formatted response blocks.
+
+---
+
+## 🚀 Features
+
+| Capability | Description |
+|---|---|
+✅ Live crypto prices from **OKX API**  
+✅ Historical price lookups (yesterday / date-range)  
+✅ GPT-powered analysis (trend + sentiment)  
+✅ Fully working **Telex A2A agent endpoint**  
+✅ Django REST API backend  
+✅ Local / Redis caching support  
+✅ Environment-driven config (`.env`)  
+
+---
+
+## 🧠 Tech Stack
+
+| Layer | Tools |
+|---|---|
+Backend Framework | Django + DRF  
+AI Engine | GPT-5 / HuggingFace Router  
+Crypto Market Data | **OKX REST API**  
+Agent Protocol | **Telex A2A JSON-RPC**  
+Cache | LocMem / Redis (optional)  
+Task Queue | Celery (optional)  
+Config | python-dotenv  
+
+---
+
+## 📦 Installation
+
+```bash
+git clone https://github.com/your-username/ai-crypto-agent.git
+cd ai-crypto-agent
+Create & Activate Virtual Env
+python -m venv venv
+source venv/bin/activate     # macOS / Linux
+venv\Scripts\activate        # Windows
+
+Install Dependencies
+pip install -r requirements.txt
+
+⚙️ Environment Variables
+
+Create .env file:
+
+SECRET_KEY=your-django-secret
+DEBUG=True
+
+# AI Endpoint
+HF_API_URL=https://router.huggingface.co/hf-inference/models/flair/ner-english
+HF_API_TOKEN=your_huggingface_token
+
+# Crypto API
+OKX_BASE=https://www.okx.com
+
+# Optional Redis / Celery
+REDIS_URL=redis://redis:6379/0
+
+▶️ Run the Server
+python manage.py migrate
+python manage.py runserver
+
+🔗 Telex A2A Endpoint
+POST /api/v1/nlp/parse/
+Content-Type: application/json
+
+✅ Example Request
+{
+  "jsonrpc": "2.0",
+  "id": "1234",
+  "params": {
+    "message": {
+      "kind": "message",
+      "parts": [
+        { "kind": "text", "text": "Check BTC yesterday" }
+      ]
+    }
+  }
+}
+
+✅ Example Response (Correct Telex Format)
+{
+  "status": "completed",
+  "message": {
+    "role": "agent",
+    "parts": [
+      {
+        "kind": "text",
+        "text": "BTC Yesterday: $110,117 → Today: $105,584 (-4.12% 🟥 bearish trend)"
+      }
+    ]
+  }
+}
