@@ -13,7 +13,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv("SECRET_KEY", "unsafe-dev-secret")
-DEBUG = os.getenv("DEBUG", "False") == "True"
+# DEBUG = os.getenv("DEBUG", "False") == "True"
+DEBUG = True
 # ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost").split(",")
 ALLOWED_HOSTS = ["*"]
 
@@ -120,6 +121,8 @@ CELERY_RESULT_BACKEND = CELERY_BROKER_URL
 STATIC_URL = "/static/"
 
 COINGECKO_BASE = os.getenv("COINGECKO_BASE", "https://api.coingecko.com/api/v3")
+BINANCE_BASE = os.getenv("BINANCE_BASE", "https://api.binance.com")
+
 HF_API_URL = os.getenv("HF_API_URL")
 HF_API_TOKEN = os.getenv("HF_API_TOKEN")
 
@@ -130,15 +133,22 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 # Redis cache
+# CACHES = {
+#     "default": {
+#         "BACKEND": "django_redis.cache.RedisCache",
+#         "LOCATION": "redis://127.0.0.1:6379/1",
+#         "OPTIONS": {
+#             "CLIENT_CLASS": "django_redis.client.DefaultClient",
+#         }
+#     }
+# }
+
 CACHES = {
     "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": "redis://127.0.0.1:6379/1",
-        "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient",
-        }
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "crypto-cache"
     }
 }
 
 # Rate-limit Redis database index (optional separation)
-RATE_LIMIT_REDIS = "redis://127.0.0.1:6379/2"
+RATE_LIMIT_REDIS = None

@@ -1,66 +1,121 @@
-# prices/services.py
 import httpx
 from decimal import Decimal, getcontext, ROUND_HALF_UP
+from django.core.cache import cache
 from django.conf import settings
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
+import asyncio
 
-getcontext().prec = 12
+getcontext().prec = 18
 
-BASE = settings.COINGECKO_BASE
+BINANCE = settings.BINANCE_BASE
 
-async def fetch_price_for_date(asset_id: str, dt: date) -> Decimal:
-    """
-    Uses /coins/{id}/history endpoint with date format dd-mm-yyyy
-    """
-    url = f"{BASE}/coins/{asset_id}/history"
-    params = {"date": dt.strftime("%d-%m-%Y"), "localization": "false"}
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        r = await client.get(url, params=params)
-        r.raise_for_status()
+class HttpClientSingleton:
+    _client = None
+
+    @classmethod
+    async def get_client(cls):
+        if cls._client is None:
+            cls._client = httpx.AsyncClient(timeout=10.0)
+        return cls._client
+
+async def fetch_binance_trading_pairs():
+    key = "binance_symbols"
+    cached = cache.get(key)
+    if cached:
+        return cached
+
+    client = await HttpClientSingleton.get_client()
+    url = f"{BINANCE}/api/v3/exchangeInfo"
+    try:
+        r = await client.get(url)
         data = r.json()
-    price = data.get("market_data", {}).get("current_price", {}).get("usd")
-    if price is None:
-        raise ValueError(f"Price not found for {asset_id} on {dt.isoformat()}")
-    return Decimal(str(price))
+        symbols = {s["symbol"] for s in data["symbols"]}
+        cache.set(key, symbols, 86400)  # cache 24hrs
+        return symbols
+    except Exception:
+        return set()
 
-async def fetch_current_price(asset_id: str) -> Decimal:
-    url = f"{BASE}/simple/price"
-    params = {"ids": asset_id, "vs_currencies": "usd"}
-    async with httpx.AsyncClient(timeout=10.0) as client:
+async def is_valid_binance_symbol(symbol: str):
+    symbols = await fetch_binance_trading_pairs()
+    return symbol.upper() in symbols
+
+async def binance_price(symbol: str):
+    if not await is_valid_binance_symbol(symbol):
+        raise ValueError(f"Sorry {symbol} is not listed in my database")
+
+    key = f"price:{symbol}"
+    cached = cache.get(key)
+    if cached:
+        return Decimal(str(cached))
+
+    client = await HttpClientSingleton.get_client()
+    url = f"{BINANCE}/api/v3/ticker/price"
+    params = {"symbol": symbol.upper()}
+
+    for _ in range(3):
         r = await client.get(url, params=params)
-        r.raise_for_status()
-        data = r.json()
-    price = data.get(asset_id, {}).get("usd")
-    if price is None:
-        raise ValueError(f"Current price not found for {asset_id}")
-    return Decimal(str(price))
+        if r.status_code == 200:
+            price = r.json()["price"]
+            cache.set(key, price, 10)
+            return Decimal(price)
+
+        if r.status_code == 429:
+            await asyncio.sleep(0.3)
+            continue
+
+    raise ValueError("Unable to fetch price — try another coin")
+
+async def binance_price_at_date(symbol: str, dt: date):
+    if not await is_valid_binance_symbol(symbol):
+        raise ValueError(f"Sorry {symbol} is not listed in my database")
+
+    key = f"hist:{symbol}:{dt}"
+    cached = cache.get(key)
+    if cached:
+        return Decimal(str(cached))
+
+    start = int(datetime(dt.year, dt.month, dt.day).timestamp() * 1000)
+    end = start + 86400000
+
+    url = f"{BINANCE}/api/v3/klines"
+    params = {"symbol": symbol.upper(), "interval": "1d", "startTime": start, "endTime": end}
+
+    client = await HttpClientSingleton.get_client()
+    r = await client.get(url, params=params)
+
+    if r.status_code != 200:
+        raise ValueError("No history for selected date")
+
+    data = r.json()
+    if not data:
+        raise ValueError("No historic price data")
+
+    price = data[0][4]
+    cache.set(key, price, 3600)
+    return Decimal(price)
 
 def percent_change(new: Decimal, old: Decimal) -> Decimal:
     if old == 0:
         return Decimal("0")
-    change = (new - old) / old * Decimal("100")
-    # round to 6 decimal places
-    return change.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    return ((new - old) / old * 100).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
-def direction_from(pc: Decimal) -> str:
-    if pc > 0:
-        return "increase"
-    elif pc < 0:
-        return "decrease"
+def direction(pc: Decimal):
+    if pc > 0: return "increase"
+    if pc < 0: return "decrease"
     return "no_change"
 
-async def get_comparison(asset_id: str, dt: date):
-    """
-    Returns dictionary with price_on_date, current_price, percent_change, direction
-    """
-    price_on_date = await fetch_price_for_date(asset_id, dt)
-    current = await fetch_current_price(asset_id)
-    pc = percent_change(current, price_on_date)
+async def get_comparison(asset: str, dt: date):
+    symbol = asset.upper() + "USDT"
+
+    old_price = await binance_price_at_date(symbol, dt)
+    new_price = await binance_price(symbol)
+    pc = percent_change(new_price, old_price)
+
     return {
-        "asset": asset_id,
+        "asset": asset,
         "date": dt.isoformat(),
-        "price_on_date": str(price_on_date),
-        "current_price": str(current),
+        "price_on_date": str(old_price),
+        "current_price": str(new_price),
         "percent_change": str(pc),
-        "direction": direction_from(pc),
+        "direction": direction(pc)
     }
