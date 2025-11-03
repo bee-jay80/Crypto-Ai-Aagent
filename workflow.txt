@@ -1,0 +1,22 @@
+{
+  "active": true,
+  "category": "crypto",
+  "description": "Crypto AI Agent that gives crypto prices & history",
+  "name": "crypto_price_agent",
+  "long_description": "This agent reads crypto questions and returns price data, history, and market comparison.",
+  "nodes": [
+    {
+      "id": "crypto_agent",
+      "name": "Crypto Price Bot",
+      "parameters": {},
+      "position": [800, -100],
+      "type": "a2a/mastra-a2a-node",
+      "typeVersion": 1,
+      "url": "https://beejay.pythonanywhere.com/api/v1/nlp/parse/"
+    }
+  ],
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "short_description":"crypto assets Analyzer"
+}

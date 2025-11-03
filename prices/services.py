@@ -4,6 +4,8 @@ from decimal import Decimal, getcontext, ROUND_HALF_UP
 from django.core.cache import cache
 from django.conf import settings
 from datetime import datetime, date
+from dateutil.parser import parse as parse_date
+from datetime import date as DateType, datetime
 import asyncio
 
 getcontext().prec = 18
@@ -86,7 +88,20 @@ async def okx_price(symbol: str):
 
 
 # ✅ Historical price
-async def okx_price_at_date(symbol: str, dt: date):
+
+async def okx_price_at_date(symbol: str, dt):
+    """
+    dt can be a datetime.date object or a string.
+    """
+    # Convert string to date if needed
+    if isinstance(dt, str):
+        try:
+            dt = parse_date(dt).date()
+        except Exception:
+            raise ValueError(f"Invalid date format: {dt}")
+    elif not isinstance(dt, DateType):
+        raise ValueError(f"dt must be a date object or string, got {type(dt)}")
+
     full_symbol = f"{symbol.upper()}-USDT"
 
     if not await is_valid_symbol(symbol):
@@ -119,6 +134,7 @@ async def okx_price_at_date(symbol: str, dt: date):
     return Decimal(close)
 
 
+
 def percent_change(new: Decimal, old: Decimal) -> Decimal:
     if old == 0:
         return Decimal("0")
@@ -131,7 +147,16 @@ def direction(pc: Decimal):
     return "no_change"
 
 
-async def get_comparison(asset: str, dt: date):
+async def get_comparison(asset: str, dt):
+    # Ensure dt is a date object
+    if isinstance(dt, str):
+        try:
+            dt = parse_date(dt).date()
+        except Exception:
+            raise ValueError(f"Invalid date format: {dt}")
+    elif not isinstance(dt, DateType):
+        raise ValueError(f"dt must be a date object or string, got {type(dt)}")
+
     old_price = await okx_price_at_date(asset, dt)
     new_price = await okx_price(asset)
     pc = percent_change(new_price, old_price)

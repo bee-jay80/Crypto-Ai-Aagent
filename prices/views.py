@@ -4,8 +4,9 @@ from rest_framework import status
 from .services import get_comparison
 from ai.services import parse_text, response_text
 from asgiref.sync import async_to_sync
-from datetime import datetime
+from dateutil.parser import parse as parse_date  # safer date parsing
 import asyncio
+
 
 class NLPToCompareAPIView(APIView):
     def post(self, request):
@@ -20,10 +21,11 @@ class NLPToCompareAPIView(APIView):
         if not asset or not ds:
             return Response({"detail": "could not detect crypto/date"}, status=400)
 
+        # Safely parse date string into datetime.date object
         try:
-            dt = datetime.fromisoformat(ds).date()
-        except:
-            return Response({"detail": "invalid date"}, status=400)
+            dt = parse_date(ds).date()
+        except Exception:
+            return Response({"detail": f"invalid date format: {ds}"}, status=400)
 
         try:
             result = async_to_sync(get_comparison)(asset, dt)
@@ -39,7 +41,6 @@ class NLPToCompareAPIView(APIView):
             return Response({"response": str(e)}, status=400)
 
 
-
 class CompareAPIView(APIView):
     """
     GET /api/v1/crypto/<asset>/compare/?date=YYYY-MM-DD
@@ -49,9 +50,9 @@ class CompareAPIView(APIView):
         if not date_str:
             return Response({"detail": "date queryparam required YYYY-MM-DD"}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            dt = datetime.fromisoformat(date_str).date()
+            dt = parse_date(date_str).date()
         except Exception:
-            return Response({"detail": "invalid date format; use YYYY-MM-DD"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": f"invalid date format: {date_str}"}, status=status.HTTP_400_BAD_REQUEST)
         try:
             result = async_to_sync(get_comparison)(asset, dt)
             return Response(result)

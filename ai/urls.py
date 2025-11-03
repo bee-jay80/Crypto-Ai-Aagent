@@ -1,7 +1,6 @@
 from django.urls import path
-from .views import NLPParseAPIView, NLPResponseAPIView
+from .views import A2ACryptoAPIView
 
 urlpatterns = [
-    path("nlp/parse/", NLPParseAPIView.as_view(), name="nlp-parse"),
-    path("nlp/response/", NLPResponseAPIView.as_view(), name="nlp-response"),
+    path("a2a/crypto", A2ACryptoAPIView.as_view(), name="a2a-crypto"),
 ]
