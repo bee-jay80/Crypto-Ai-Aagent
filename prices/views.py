@@ -5,23 +5,6 @@ from .services import get_comparison
 from ai.services import parse_text, response_text
 from asgiref.sync import async_to_sync
 from datetime import datetime
-from uuid import uuid4
-
-
-def build_telex_message(texts, role="agent", task_id=None):
-    """
-    Builds a Telex A2A-compliant message dictionary.
-    texts: list of strings -> each becomes a separate part
-    """
-    parts = [{"kind": "text", "text": t} for t in texts]
-    return {
-        "kind": "message",
-        "role": role,
-        "parts": parts,
-        "messageId": str(uuid4()),
-        "taskId": task_id or str(uuid4())
-    }
-
 
 class NLPToCompareAPIView(APIView):
     def post(self, request):
@@ -38,22 +21,15 @@ class NLPToCompareAPIView(APIView):
 
         try:
             dt = datetime.fromisoformat(ds).date()
-        except Exception:
+        except:
             return Response({"detail": "invalid date"}, status=400)
 
         try:
-            # Fetch comparison
+            # Return Telex-compliant response directly
             result = async_to_sync(get_comparison)(asset, dt)
+            reply = async_to_sync(response_text)(result)
 
-            # Generate Telex-compliant agent message
-            reply_text = async_to_sync(response_text)(result)
-            telex_message = build_telex_message([reply_text], role="agent")
-
-            return Response({
-                "parsed": parsed,
-                "comparison": result,
-                "telex_message": telex_message
-            })
+            return Response(result)  # Already Telex-compliant
 
         except Exception as e:
             return Response({"response": str(e)}, status=400)
@@ -70,7 +46,6 @@ class CompareAPIView(APIView):
                 {"detail": "date queryparam required YYYY-MM-DD"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
         try:
             dt = datetime.fromisoformat(date_str).date()
         except Exception:
@@ -78,19 +53,8 @@ class CompareAPIView(APIView):
                 {"detail": "invalid date format; use YYYY-MM-DD"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
         try:
-            # Fetch comparison
             result = async_to_sync(get_comparison)(asset, dt)
-
-            # Build Telex-compliant message
-            reply_text = async_to_sync(response_text)(result)
-            telex_message = build_telex_message([reply_text], role="agent")
-
-            return Response({
-                "comparison": result,
-                "telex_message": telex_message
-            })
-
+            return Response(result)  # Already Telex-compliant
         except Exception as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)

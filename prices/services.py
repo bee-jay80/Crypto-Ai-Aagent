@@ -9,6 +9,7 @@ from datetime import date as DateType, datetime
 import asyncio
 
 getcontext().prec = 18
+import uuid
 
 OKX_BASE = settings.OKX_BASE
 
@@ -147,25 +148,89 @@ def direction(pc: Decimal):
     return "no_change"
 
 
-async def get_comparison(asset: str, dt):
-    # Ensure dt is a date object
-    if isinstance(dt, str):
-        try:
-            dt = parse_date(dt).date()
-        except Exception:
-            raise ValueError(f"Invalid date format: {dt}")
-    elif not isinstance(dt, DateType):
-        raise ValueError(f"dt must be a date object or string, got {type(dt)}")
+getcontext().prec = 18
 
-    old_price = await okx_price_at_date(asset, dt)
-    new_price = await okx_price(asset)
+def build_task_response(asset: str, old_price: Decimal, new_price: Decimal, dt: date):
+    """
+    Builds Telex-compliant JSON-RPC response structure
+    """
+    task_id = str(uuid.uuid4())
+    msg_id_user = str(uuid.uuid4())
+    msg_id_agent = str(uuid.uuid4())
+
     pc = percent_change(new_price, old_price)
+    dir_text = direction(pc)
 
-    return {
-        "asset": asset,
-        "date": dt.isoformat(),
+    # Human-readable text
+    text_msg = (
+        f"Asset: {asset.upper()}\n"
+        f"Date checked: {dt}\n"
+        f"Price on date: ${old_price}\n"
+        f"Current price: ${new_price}\n"
+        f"Percentage change: {pc}%\n"
+        f"Direction: {dir_text}\n"
+    )
+
+    # Structured artifact (optional, can be used by agent programmatically)
+    artifact_data = {
+        "asset": asset.upper(),
+        "date": str(dt),
         "price_on_date": str(old_price),
         "current_price": str(new_price),
         "percent_change": str(pc),
-        "direction": direction(pc)
+        "direction": dir_text
     }
+
+    return {
+        "jsonrpc": "2.0",
+        "id": task_id,
+        "result": {
+            "id": task_id,
+            "contextId": f"crypto-{asset.lower()}",
+            "status": {
+                "state": "completed",
+                "timestamp": datetime.utcnow().isoformat(),
+                "message": {
+                    "kind": "message",
+                    "role": "agent",
+                    "parts": [
+                        {"kind": "text", "text": text_msg}
+                    ],
+                    "messageId": msg_id_agent,
+                    "taskId": task_id
+                }
+            },
+            "artifacts": [
+                {
+                    "artifactId": str(uuid.uuid4()),
+                    "name": "comparison_data",
+                    "parts": [
+                        {"kind": "text", "text": str(artifact_data)}
+                    ]
+                }
+            ],
+            "history": [
+                {
+                    "kind": "message",
+                    "role": "user",
+                    "parts": [{"kind": "text", "text": f"Check {asset} price {dt}"}],
+                    "messageId": msg_id_user,
+                    "taskId": task_id
+                },
+                {
+                    "kind": "message",
+                    "role": "agent",
+                    "parts": [{"kind": "text", "text": text_msg}],
+                    "messageId": msg_id_agent,
+                    "taskId": task_id
+                }
+            ],
+            "kind": "task"
+        },
+        "error": None
+    }
+
+async def get_comparison(asset: str, dt: date):
+    old_price = await okx_price_at_date(asset, dt)
+    new_price = await okx_price(asset)
+    return build_task_response(asset, old_price, new_price, dt)
