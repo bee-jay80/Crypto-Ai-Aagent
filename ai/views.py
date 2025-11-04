@@ -78,6 +78,20 @@ class A2ACryptoAPIView(APIView):
                     "kind": "message",
                     "taskId": task_id
                 }
+                # Ensure user message has messageId
+                user_msg = messages[-1]
+                if isinstance(user_msg, dict):
+                    if "messageId" not in user_msg:
+                        user_msg = dict(user_msg)
+                        user_msg["messageId"] = str(uuid.uuid4())
+                else:
+                    user_msg = {
+                        "role": "user",
+                        "messageId": str(uuid.uuid4()),
+                        "parts": user_msg.get("parts", []),
+                        "kind": "message",
+                        "taskId": task_id
+                    }
                 task = {
                     "id": task_id,
                     "contextId": "chat",
@@ -87,7 +101,7 @@ class A2ACryptoAPIView(APIView):
                         "message": msg
                     },
                     "artifacts": [],
-                    "history": [messages[-1], msg],
+                    "history": [user_msg, msg],
                     "kind": "task"
                 }
                 return Response({"jsonrpc": "2.0", "id": rpc_request.id, "result": task})
@@ -125,6 +139,20 @@ class A2ACryptoAPIView(APIView):
                     ]
                 }
             ]
+            # Ensure user message has messageId
+            user_msg = messages[-1]
+            if isinstance(user_msg, dict):
+                if "messageId" not in user_msg:
+                    user_msg = dict(user_msg)
+                    user_msg["messageId"] = str(uuid.uuid4())
+            else:
+                user_msg = {
+                    "role": "user",
+                    "messageId": str(uuid.uuid4()),
+                    "parts": user_msg.get("parts", []),
+                    "kind": "message",
+                    "taskId": task_id
+                }
             task = {
                 "id": task_id,
                 "contextId": f"crypto-{symbol.lower()}",
@@ -134,7 +162,7 @@ class A2ACryptoAPIView(APIView):
                     "message": msg
                 },
                 "artifacts": artifacts,
-                "history": [messages[-1], msg],
+                "history": [user_msg, msg],
                 "kind": "task"
             }
             return Response({"jsonrpc": "2.0", "id": rpc_request.id, "result": task})
