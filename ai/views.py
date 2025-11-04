@@ -137,13 +137,14 @@ class A2ACryptoAPIView(APIView):
                 "taskId": task_id,
             }
 
-            # Build artifacts as plain dicts. For file parts some validators expect a nested
-            # 'file' object with a 'file' field — include that shape to be compatible.
+            # Build artifacts as plain dicts to match chess agent schema
             file_url = f"http://localhost:9000/chess-boards/crypto-{symbol.lower()}/{task_id}.png"
+            # Extract move string from parsed intent (simulate chess move for demo)
+            move_text = parsed.get("move") or symbol or "e4"
             artifact_1 = {
                 "artifactId": str(uuid.uuid4()),
-                "name": "comparison_data",
-                "parts": [{"kind": "text", "text": str(comp)}]
+                "name": "move",
+                "parts": [{"kind": "text", "text": move_text}]
             }
             artifact_2 = {
                 "artifactId": str(uuid.uuid4()),
@@ -173,7 +174,7 @@ class A2ACryptoAPIView(APIView):
 
             task = {
                 "id": task_id,
-                "contextId": f"crypto-{symbol.lower()}",
+                "contextId": str(uuid.uuid4()),
                 "status": {
                     "state": "completed",
                     "timestamp": now,
