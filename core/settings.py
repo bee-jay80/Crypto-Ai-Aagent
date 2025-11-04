@@ -122,7 +122,17 @@ STATIC_URL = "/static/"
 
 COINGECKO_BASE = os.getenv("COINGECKO_BASE")
 BINANCE_BASE = os.getenv("BINANCE_BASE")
-OKX_BASE = os.getenv("OKX_BASE")
+
+# Helper to safely read env values and strip surrounding quotes/whitespace
+def _env_strip(key, default=None):
+    val = os.getenv(key, default)
+    if val is None:
+        return default
+    # remove accidental surrounding whitespace and quotes
+    return val.strip().strip('"').strip("'")
+
+BINANCE_BASE = _env_strip("BINANCE_BASE")
+OKX_BASE = _env_strip("OKX_BASE") or "https://www.okx.com"
 
 HF_API_URL = os.getenv("HF_API_URL")
 HF_API_TOKEN = os.getenv("HF_API_TOKEN")
