@@ -40,6 +40,9 @@ class A2ACryptoAPIView(APIView):
 
             user_text = ""
             if last_message_dict:
+                # Convert model object to dict if needed
+                if hasattr(last_message_dict, "model_dump"):
+                    last_message_dict = last_message_dict.model_dump()
                 parts = last_message_dict.get("parts", [])
                 for part in parts:
                     if part.get("kind") == "text":
@@ -51,9 +54,15 @@ class A2ACryptoAPIView(APIView):
             rpc_request = JSONRPCRequest(**body)
 
             if rpc_request.method == "message/send":
-                messages = [rpc_request.params.message]
+                # Convert model object to dict if needed
+                msg_obj = rpc_request.params.message
+                if hasattr(msg_obj, "model_dump"):
+                    msg_obj = msg_obj.model_dump()
+                messages = [msg_obj]
             elif rpc_request.method == "execute":
-                messages = rpc_request.params.messages
+                # Convert all model objects to dicts if needed
+                msgs = rpc_request.params.messages
+                messages = [m.model_dump() if hasattr(m, "model_dump") else m for m in msgs]
             else:
                 return Response({
                     "jsonrpc": "2.0",

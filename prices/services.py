@@ -14,13 +14,27 @@ import uuid
 OKX_BASE = settings.OKX_BASE
 
 class HttpClientSingleton:
-    _client = None
+    """Create a fresh AsyncClient per-call.
+
+    AsyncClient instances bind to the event loop they are created on. Reusing
+    a single AsyncClient across multiple short-lived event loops (created by
+    asgiref.async_to_sync) can cause "Event loop is closed" errors. To avoid
+    that, return a new client for each call and use an async context manager to
+    ensure it is properly closed.
+    """
 
     @classmethod
     async def get_client(cls):
-        if cls._client is None:
-            cls._client = httpx.AsyncClient(timeout=10.0)
-        return cls._client
+        limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
+        timeout = httpx.Timeout(30.0, connect=10.0, read=20.0, write=20.0)
+        base = OKX_BASE if OKX_BASE else "https://www.okx.com"
+        return httpx.AsyncClient(
+            timeout=timeout,
+            limits=limits,
+            http2=True,
+            verify=True,
+            base_url=base
+        )
 
 
 # ✅ Fetch OKX trading symbols and cache
@@ -30,18 +44,18 @@ async def fetch_okx_symbols():
     if cached:
         return cached
 
-    client = await HttpClientSingleton.get_client()
     url = f"{OKX_BASE}/api/v5/public/instruments?instType=SPOT"
 
     try:
-        r = await client.get(url)
-        if r.status_code != 200:
-            return set()
+        async with await HttpClientSingleton.get_client() as client:
+            r = await client.get(url)
+            if r.status_code != 200:
+                return set()
 
-        data = r.json()
-        symbols = {item["instId"] for item in data.get("data", [])}
-        cache.set(key, symbols, 86400)  # 24hrs
-        return symbols
+            data = r.json()
+            symbols = {item["instId"] for item in data.get("data", [])}
+            cache.set(key, symbols, 86400)  # 24hrs
+            return symbols
 
     except Exception:
         return set()
@@ -65,11 +79,11 @@ async def okx_price(symbol: str):
         return Decimal(str(cached))
 
     url = f"{OKX_BASE}/api/v5/market/ticker?instId={full_symbol}"
-    client = await HttpClientSingleton.get_client()
 
     for _ in range(3):
         try:
-            r = await client.get(url)
+            async with await HttpClientSingleton.get_client() as client:
+                r = await client.get(url)
             if r.status_code == 429:  # Rate limit
                 await asyncio.sleep(0.3)
                 continue
@@ -119,9 +133,8 @@ async def okx_price_at_date(symbol: str, dt):
         f"{OKX_BASE}/api/v5/market/history-candles?"
         f"instId={full_symbol}&bar=1D&limit=1&after={start}"
     )
-    client = await HttpClientSingleton.get_client()
-
-    r = await client.get(url)
+    async with await HttpClientSingleton.get_client() as client:
+        r = await client.get(url)
 
     if r.status_code != 200:
         raise ValueError("⚠️ Unable to fetch historical price — try another date.")
