@@ -13,6 +13,17 @@ import uuid
 
 OKX_BASE = settings.OKX_BASE
 
+# Common symbols that should always be available as a safe fallback
+COMMON_SYMBOLS = {
+    "BTC-USDT",
+    "ETH-USDT",
+    "SOL-USDT",
+    "XRP-USDT",
+    "ADA-USDT",
+    "DOGE-USDT",
+    "DOT-USDT",
+}
+
 class HttpClientSingleton:
     """Create a fresh AsyncClient per-call.
 
@@ -42,6 +53,13 @@ async def fetch_okx_symbols():
     key = "okx_symbols"
     cached = cache.get(key)
     if cached:
+        # ensure common symbols are present in the cached set
+        try:
+            cached.update(COMMON_SYMBOLS)
+        except Exception:
+            # if cache stored a non-mutable type, replace it
+            cached = set(cached) | COMMON_SYMBOLS
+            cache.set(key, cached, 86400)
         return cached
 
     url = f"{OKX_BASE}/api/v5/public/instruments?instType=SPOT"
@@ -49,21 +67,35 @@ async def fetch_okx_symbols():
     try:
         async with await HttpClientSingleton.get_client() as client:
             r = await client.get(url)
+            if r.status_code == 429:
+                # rate limited — return fallback but don't cache bad data
+                return COMMON_SYMBOLS
+
             if r.status_code != 200:
-                return set()
+                return COMMON_SYMBOLS
 
             data = r.json()
             symbols = {item["instId"] for item in data.get("data", [])}
-            cache.set(key, symbols, 86400)  # 24hrs
+            if not symbols:
+                return COMMON_SYMBOLS
+
+            # Always include common symbols to be robust
+            symbols.update(COMMON_SYMBOLS)
+            cache.set(key, symbols, 3600)  # cache for 1 hour
             return symbols
 
     except Exception:
-        return set()
+        return COMMON_SYMBOLS
 
 
 async def is_valid_symbol(symbol: str):
+    formatted = f"{symbol.upper()}-USDT"
+    # Quick allow-list for known top symbols
+    if formatted in COMMON_SYMBOLS:
+        return True
+
     symbols = await fetch_okx_symbols()
-    return f"{symbol.upper()}-USDT" in symbols
+    return formatted in symbols
 
 
 # ✅ Current price from OKX
