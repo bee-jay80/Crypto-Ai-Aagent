@@ -151,11 +151,9 @@ class A2ACryptoAPIView(APIView):
                 "parts": [
                     {
                         "kind": "file",
-                        # include both 'file' nested object and 'file_url' key for broad compatibility
-                        "file": {"file": file_url},
+                        # Use the canonical 'file' object with a 'uri' field (validator expects 'bytes' or 'uri')
+                        "file": {"uri": file_url},
                         "file_url": file_url,
-                        "text": None,
-                        "data": None,
                     }
                 ]
             }
