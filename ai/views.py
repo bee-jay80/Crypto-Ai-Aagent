@@ -80,38 +80,45 @@ class A2ACryptoAPIView(APIView):
                 msg_id = str(uuid.uuid4())
                 task_id = rpc_request.id or str(uuid.uuid4())
                 now = datetime.utcnow().isoformat() + "Z"
-                # Build A2AMessage model for agent reply
-                msg = A2AMessage(
-                    role="agent",
-                    messageId=msg_id,
-                    parts=[MessagePart(kind="text", text=reply_text)],
-                    taskId=task_id,
-                )
+                # Build agent message as a plain dict to match external schema strictly
+                msg = {
+                    "kind": "message",
+                    "role": "agent",
+                    "messageId": msg_id,
+                    "parts": [{"kind": "text", "text": reply_text}],
+                    "taskId": task_id,
+                }
                 # Ensure user message has messageId and convert to model
                 user_msg_raw = messages[-1]
                 if isinstance(user_msg_raw, dict):
                     if "messageId" not in user_msg_raw:
                         user_msg_raw = dict(user_msg_raw)
                         user_msg_raw["messageId"] = str(uuid.uuid4())
-                    user_msg = A2AMessage(**user_msg_raw)
+                    user_msg = dict(user_msg_raw)
+                    # ensure kind present
+                    user_msg.setdefault("kind", "message")
                 else:
-                    user_msg = A2AMessage(
-                        role="user",
-                        messageId=str(uuid.uuid4()),
-                        parts=[MessagePart(**p) for p in (getattr(user_msg_raw, "parts", []) or [])],
-                        taskId=task_id,
-                    )
-
-                status = TaskStatus(state="completed", timestamp=now, message=msg)
-                task = TaskResult(
-                    id=task_id,
-                    contextId="chat",
-                    status=status,
-                    artifacts=[],
-                    history=[user_msg, msg],
-                )
-                resp = JSONRPCResponse(id=rpc_request.id, result=task)
-                return Response(resp.model_dump())
+                    user_msg = {
+                        "kind": "message",
+                        "role": "user",
+                        "messageId": str(uuid.uuid4()),
+                        "parts": [p for p in (getattr(user_msg_raw, "parts", []) or [])],
+                        "taskId": task_id,
+                    }
+                # Build response as plain dict to ensure exact schema
+                task = {
+                    "id": task_id,
+                    "contextId": "chat",
+                    "status": {
+                        "state": "completed",
+                        "timestamp": now,
+                        "message": msg,
+                    },
+                    "artifacts": [],
+                    "history": [user_msg, msg],
+                    "kind": "task",
+                }
+                return Response({"jsonrpc": "2.0", "id": rpc_request.id, "result": task})
 
             # ✅ Crypto data mode
             dt = parsed.get("date")
@@ -121,41 +128,66 @@ class A2ACryptoAPIView(APIView):
             msg_id = str(uuid.uuid4())
             task_id = rpc_request.id or str(uuid.uuid4())
             now = datetime.utcnow().isoformat() + "Z"
-            agent_msg = A2AMessage(
-                role="agent",
-                messageId=msg_id,
-                parts=[MessagePart(kind="text", text=analysis_text)],
-                taskId=task_id,
-            )
+            # Build agent message as plain dict
+            agent_msg = {
+                "kind": "message",
+                "role": "agent",
+                "messageId": msg_id,
+                "parts": [{"kind": "text", "text": analysis_text}],
+                "taskId": task_id,
+            }
 
-            artifact_1 = Artifact(artifactId=str(uuid.uuid4()), name="comparison_data", parts=[MessagePart(kind="text", text=str(comp))])
-            artifact_2 = Artifact(artifactId=str(uuid.uuid4()), name="board", parts=[MessagePart(kind="file", file_url=f"http://localhost:9000/chess-boards/crypto-{symbol.lower()}/{task_id}.png")])
+            # Build artifacts as plain dicts. For file parts some validators expect a nested
+            # 'file' object with a 'file' field — include that shape to be compatible.
+            file_url = f"http://localhost:9000/chess-boards/crypto-{symbol.lower()}/{task_id}.png"
+            artifact_1 = {
+                "artifactId": str(uuid.uuid4()),
+                "name": "comparison_data",
+                "parts": [{"kind": "text", "text": str(comp)}]
+            }
+            artifact_2 = {
+                "artifactId": str(uuid.uuid4()),
+                "name": "board",
+                "parts": [
+                    {
+                        "kind": "file",
+                        # include both 'file' nested object and 'file_url' key for broad compatibility
+                        "file": {"file": file_url},
+                        "file_url": file_url,
+                        "text": None,
+                        "data": None,
+                    }
+                ]
+            }
 
-            # Ensure user message has messageId and convert to model
+            # Ensure user message has messageId and is a dict
             user_msg_raw = messages[-1]
             if isinstance(user_msg_raw, dict):
-                if "messageId" not in user_msg_raw:
-                    user_msg_raw = dict(user_msg_raw)
-                    user_msg_raw["messageId"] = str(uuid.uuid4())
-                user_msg = A2AMessage(**user_msg_raw)
+                user_msg = dict(user_msg_raw)
+                user_msg.setdefault("kind", "message")
+                user_msg.setdefault("messageId", str(uuid.uuid4()))
             else:
-                user_msg = A2AMessage(
-                    role="user",
-                    messageId=str(uuid.uuid4()),
-                    parts=[MessagePart(**p) for p in (getattr(user_msg_raw, "parts", []) or [])],
-                    taskId=task_id,
-                )
+                user_msg = {
+                    "kind": "message",
+                    "role": "user",
+                    "messageId": str(uuid.uuid4()),
+                    "parts": [p for p in (getattr(user_msg_raw, "parts", []) or [])],
+                    "taskId": task_id,
+                }
 
-            status = TaskStatus(state="completed", timestamp=now, message=agent_msg)
-            task = TaskResult(
-                id=task_id,
-                contextId=f"crypto-{symbol.lower()}",
-                status=status,
-                artifacts=[artifact_1, artifact_2],
-                history=[user_msg, agent_msg],
-            )
-            resp = JSONRPCResponse(id=rpc_request.id, result=task)
-            return Response(resp.model_dump())
+            task = {
+                "id": task_id,
+                "contextId": f"crypto-{symbol.lower()}",
+                "status": {
+                    "state": "completed",
+                    "timestamp": now,
+                    "message": agent_msg,
+                },
+                "artifacts": [artifact_1, artifact_2],
+                "history": [user_msg, agent_msg],
+                "kind": "task",
+            }
+            return Response({"jsonrpc": "2.0", "id": rpc_request.id, "result": task})
 
         except Exception as e:
             return Response({
