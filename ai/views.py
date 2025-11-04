@@ -151,9 +151,7 @@ class A2ACryptoAPIView(APIView):
                 "parts": [
                     {
                         "kind": "file",
-                        # Use the canonical 'file' object with a 'uri' field (validator expects 'bytes' or 'uri')
-                        "file": {"uri": file_url},
-                        "file_url": file_url,
+                        "file_url": file_url
                     }
                 ]
             }
