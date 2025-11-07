@@ -124,11 +124,38 @@ class A2ACryptoAPIView(APIView):
             dt = parsed.get("date")
             symbol = parsed.get("symbol")
             comp = async_to_sync(get_comparison)(symbol, dt)
-            analysis_text = async_to_sync(response_text)(comp)
             msg_id = str(uuid.uuid4())
             task_id = rpc_request.id or str(uuid.uuid4())
             now = datetime.utcnow().isoformat() + "Z"
-            # Build agent message as plain dict with confirmation
+
+            # Check for errors in the response
+            if isinstance(comp, dict) and comp.get("error"):
+                error_msg = comp.get("details", "An error occurred while fetching the data")
+                agent_msg = {
+                    "kind": "message",
+                    "role": "agent",
+                    "messageId": msg_id,
+                    "parts": [{"kind": "text", "text": f"Sorry, I couldn't get the price information for {symbol}. {error_msg}"}],
+                    "taskId": task_id,
+                }
+                
+                # Return error response
+                task = {
+                    "id": task_id,
+                    "contextId": str(uuid.uuid4()),
+                    "status": {
+                        "state": "failed",
+                        "timestamp": now,
+                        "message": agent_msg,
+                    },
+                    "artifacts": [],
+                    "history": [messages[-1], agent_msg],
+                    "kind": "task",
+                }
+                return Response({"jsonrpc": "2.0", "id": rpc_request.id, "result": task})
+
+            # If no errors, proceed with analysis
+            analysis_text = async_to_sync(response_text)(comp)
             confirmation_text = f"I've analyzed the price information for {symbol}. You can find the detailed analysis in the artifacts."
             agent_msg = {
                 "kind": "message",
