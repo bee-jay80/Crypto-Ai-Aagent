@@ -1,10 +1,8 @@
 import json
-import httpx
-from openai import OpenAI
 from django.conf import settings
-
 from datetime import datetime, timedelta
 import dateparser
+from google import genai
 
 def normalize_date(date_text: str):
     if not date_text:
@@ -18,15 +16,15 @@ def normalize_date(date_text: str):
 
     return dt.strftime("%Y-%m-%d")
 
-HF_TOKEN = getattr(settings, "HF_API_TOKEN", None)
+GEMINI_KEY = getattr(settings, "GEMINI_API_KEY", None)
 
-if not HF_TOKEN:
-    raise RuntimeError("HF_API_TOKEN missing in env")
+# genai client reads GEMINI_API_KEY from environment by default, but we
+# still ensure a key is configured in Django settings for clarity.
+if not GEMINI_KEY:
+    raise RuntimeError("GEMINI_API_KEY missing in settings")
 
-client = OpenAI(
-    base_url="https://router.huggingface.co/v1",
-    api_key=HF_TOKEN
-)
+# Initialize Google GenAI client
+client = genai.Client()
 
 SYSTEM_PROMPT = """
 You are a crypto assistant and command parser.
@@ -99,16 +97,19 @@ NOTE: do not actually return 2025-month in number-day in number but return it wi
 
 async def parse_text(text: str) -> dict:
     try:
-        completion = client.chat.completions.create(
-            model="zai-org/GLM-4.6:novita",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": text}
-            ],
-            max_tokens=200,
+        # Use Gemini to generate a reply. We send the system prompt and the user input
+        # concatenated so the model receives the same instruction context.
+        prompt = SYSTEM_PROMPT + "\n\nUSER:\n" + text
+
+        response = client.models.generate_content(
+            model=getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash"),
+            contents=prompt,
+            max_output_tokens=200,
         )
 
-        raw = completion.choices[0].message.content.strip()
+        # response.text matches sample usage; fallback to string conversion
+        raw = getattr(response, "text", None) or str(response)
+        raw = raw.strip()
 
         # ✅ Try JSON mode first
         try:
@@ -174,16 +175,16 @@ async def response_text(data: dict) -> dict:
         # data already is a dict, no need to json.loads
         formatted_user_input = json.dumps(data, ensure_ascii=False)
 
-        completion = client.chat.completions.create(
-            model="zai-org/GLM-4.6:novita",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT2},
-                {"role": "user", "content": formatted_user_input}
-            ],
-            max_tokens=300,
+        prompt = SYSTEM_PROMPT2 + "\n\nDATA:\n" + formatted_user_input
+
+        response = client.models.generate_content(
+            model=getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash"),
+            contents=prompt,
+            max_output_tokens=300,
         )
 
-        return completion.choices[0].message.content.strip()
+        raw = getattr(response, "text", None) or str(response)
+        return raw.strip()
 
     except Exception as e:
         return {"error": "RESPONSE_FAILED", "details": str(e)}

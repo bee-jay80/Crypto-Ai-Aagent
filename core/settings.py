@@ -136,6 +136,7 @@ OKX_BASE = _env_strip("OKX_BASE") or "https://www.okx.com"
 
 HF_API_URL = os.getenv("HF_API_URL")
 HF_API_TOKEN = os.getenv("HF_API_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
