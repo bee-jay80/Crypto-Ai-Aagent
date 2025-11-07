@@ -128,32 +128,21 @@ class A2ACryptoAPIView(APIView):
             msg_id = str(uuid.uuid4())
             task_id = rpc_request.id or str(uuid.uuid4())
             now = datetime.utcnow().isoformat() + "Z"
-            # Build agent message as plain dict
+            # Build agent message as plain dict with confirmation
+            confirmation_text = f"I've analyzed the price information for {symbol}. You can find the detailed analysis in the artifacts."
             agent_msg = {
                 "kind": "message",
                 "role": "agent",
                 "messageId": msg_id,
-                "parts": [{"kind": "text", "text": analysis_text}],
+                "parts": [{"kind": "text", "text": confirmation_text}],
                 "taskId": task_id,
             }
 
-            # Build artifacts as plain dicts for crypto analysis
-            # str(comp)
-            file_url = f"http://localhost:9000/charts/crypto-{symbol.lower()}/{task_id}.png"
+            # Build artifact with the detailed analysis
             artifact_1 = {
                 "artifactId": str(uuid.uuid4()),
                 "name": "comparison_data",
                 "parts": [{"kind": "text", "text": analysis_text}]
-            }
-            artifact_2 = {
-                "artifactId": str(uuid.uuid4()),
-                "name": "price_chart",
-                "parts": [
-                    {
-                        "kind": "file",
-                        "file_url": file_url
-                    }
-                ]
             }
 
             # Ensure user message has messageId and is a dict
@@ -179,7 +168,7 @@ class A2ACryptoAPIView(APIView):
                     "timestamp": now,
                     "message": agent_msg,
                 },
-                "artifacts": [artifact_1, artifact_2],
+                "artifacts": [artifact_1],
                 "history": [user_msg, agent_msg],
                 "kind": "task",
             }
