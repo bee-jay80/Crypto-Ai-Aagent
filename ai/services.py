@@ -104,7 +104,6 @@ async def parse_text(text: str) -> dict:
         response = client.models.generate_content(
             model=getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash"),
             contents=prompt,
-            max_output_tokens=200,
         )
 
         # response.text matches sample usage; fallback to string conversion
@@ -180,11 +179,11 @@ async def response_text(data: dict) -> dict:
         response = client.models.generate_content(
             model=getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash"),
             contents=prompt,
-            max_output_tokens=300,
         )
 
         raw = getattr(response, "text", None) or str(response)
         return raw.strip()
 
     except Exception as e:
-        return {"error": "RESPONSE_FAILED", "details": str(e)}
+        # Return a JSON string so artifact text is always a string
+        return json.dumps({"error": "RESPONSE_FAILED", "details": str(e)})

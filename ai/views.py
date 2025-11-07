@@ -156,7 +156,8 @@ class A2ACryptoAPIView(APIView):
 
             # If no errors, proceed with analysis
             analysis_text = async_to_sync(response_text)(comp)
-            confirmation_text = f"I've analyzed the price information for {symbol}. You can find the detailed analysis in the artifacts."
+            symbol_display = symbol if symbol else "the asset"
+            confirmation_text = f"I've analyzed the price information for {symbol_display}. You can find the detailed analysis in the artifacts."
             agent_msg = {
                 "kind": "message",
                 "role": "agent",
