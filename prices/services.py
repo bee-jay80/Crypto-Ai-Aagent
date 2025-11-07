@@ -275,7 +275,16 @@ def build_task_response(asset: str, old_price: Decimal, new_price: Decimal, dt: 
         "error": None
     }
 
-async def get_comparison(asset: str, dt: date):
-    old_price = await okx_price_at_date(asset, dt)
-    new_price = await okx_price(asset)
-    return build_task_response(asset, old_price, new_price, dt)
+async def get_comparison(asset: str, dt: date = None):
+    try:
+        # If no date provided, use today
+        if dt is None:
+            dt = date.today()
+        
+        # Get historical and current prices
+        old_price = await okx_price_at_date(asset, dt)
+        new_price = await okx_price(asset)
+        return build_task_response(asset, old_price, new_price, dt), None
+    except Exception as e:
+        error_msg = str(e) if str(e) else "An error occurred while fetching price data"
+        return None, error_msg
