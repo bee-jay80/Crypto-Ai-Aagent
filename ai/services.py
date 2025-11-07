@@ -3,6 +3,7 @@ from django.conf import settings
 from datetime import datetime, timedelta
 import dateparser
 from google import genai
+import re
 
 def normalize_date(date_text: str):
     if not date_text:
@@ -109,10 +110,30 @@ async def parse_text(text: str) -> dict:
         # response.text matches sample usage; fallback to string conversion
         raw = getattr(response, "text", None) or str(response)
         raw = raw.strip()
+        # Strip common Markdown code fences like ```json ... ```
+        def _strip_code_fence(s: str) -> str:
+            m = re.match(r"^\s*```(?:json)?\s*\n(.*)\n```\s*$", s, re.S | re.I)
+            if m:
+                return m.group(1).strip()
+            return s
+
+        raw_stripped = _strip_code_fence(raw)
 
         # ✅ Try JSON mode first
         try:
-            data = json.loads(raw)
+            data = json.loads(raw_stripped)
+        except json.JSONDecodeError:
+            # fallback: try to extract the first JSON object inside the text
+            m = re.search(r"(\{.*\})", raw_stripped, re.S)
+            if m:
+                try:
+                    data = json.loads(m.group(1))
+                except json.JSONDecodeError:
+                    data = None
+            else:
+                data = None
+
+        if data:
             parsed_date = normalize_date(data.get("date"))
             return {
                 "asset": data.get("asset"),
@@ -120,12 +141,12 @@ async def parse_text(text: str) -> dict:
                 "date": parsed_date,
                 "raw": raw
             }
-        except json.JSONDecodeError:
-            # ✅ Normal Chat Mode
-            return {
-                "message": raw,
-                "mode": "chat"
-            }
+
+        # ✅ Normal Chat Mode
+        return {
+            "message": raw,
+            "mode": "chat"
+        }
 
     except Exception as e:
         return {"error": "PARSE_FAILED", "details": str(e)}
