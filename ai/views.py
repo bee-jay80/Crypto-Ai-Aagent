@@ -138,11 +138,12 @@ class A2ACryptoAPIView(APIView):
             }
 
             # Build artifacts as plain dicts for crypto analysis
+            # str(comp)
             file_url = f"http://localhost:9000/charts/crypto-{symbol.lower()}/{task_id}.png"
             artifact_1 = {
                 "artifactId": str(uuid.uuid4()),
                 "name": "comparison_data",
-                "parts": [{"kind": "text", "text": str(comp)}]
+                "parts": [{"kind": "text", "text": analysis_text}]
             }
             artifact_2 = {
                 "artifactId": str(uuid.uuid4()),
