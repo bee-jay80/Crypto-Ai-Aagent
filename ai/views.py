@@ -137,18 +137,16 @@ class A2ACryptoAPIView(APIView):
                 "taskId": task_id,
             }
 
-            # Build artifacts as plain dicts to match chess agent schema
-            file_url = f"http://localhost:9000/chess-boards/crypto-{symbol.lower()}/{task_id}.png"
-            # Extract move string from parsed intent (simulate chess move for demo)
-            move_text = parsed.get("move") or symbol or "e4"
+            # Build artifacts as plain dicts for crypto analysis
+            file_url = f"http://localhost:9000/charts/crypto-{symbol.lower()}/{task_id}.png"
             artifact_1 = {
                 "artifactId": str(uuid.uuid4()),
-                "name": "move",
-                "parts": [{"kind": "text", "text": move_text}]
+                "name": "comparison_data",
+                "parts": [{"kind": "text", "text": str(comp)}]
             }
             artifact_2 = {
                 "artifactId": str(uuid.uuid4()),
-                "name": "board",
+                "name": "price_chart",
                 "parts": [
                     {
                         "kind": "file",

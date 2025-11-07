@@ -17,9 +17,15 @@ class A2AMessage(BaseModel):
     taskId: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
+class PushNotificationConfig(BaseModel):
+    url: str
+    token: Optional[str] = None
+    authentication: Optional[Dict[str, Any]] = None
+
 class MessageConfiguration(BaseModel):
     blocking: bool = True
-    acceptedOutputModes: List[str] = ["text/plain", "application/json"]
+    acceptedOutputModes: List[str] = ["text/plain", "image/png", "application/json"]
+    pushNotificationConfig: Optional[PushNotificationConfig] = None
 
 class MessageParams(BaseModel):
     message: A2AMessage
